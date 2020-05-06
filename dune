@@ -1,0 +1,4 @@
+(executable
+ (name text_extract)
+ (modules text_extract)
+ (libraries cmdliner logs logs.fmt re))
