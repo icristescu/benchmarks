@@ -3,7 +3,19 @@ open Re.Str
 
 let file =
   let doc = Arg.info ~doc:"File." [ "f"; "file" ] in
-  Arg.(value @@ opt string "dune" doc)
+  Arg.(value @@ opt string "logs" doc)
+
+let separate_logs =
+  let doc =
+    Arg.info
+      ~doc:"Separate files for validator.block and prevalidator/validator.chain"
+      [ "s"; "separate" ]
+  in
+  Arg.(value @@ flag doc)
+
+let baker =
+  let doc = Arg.info ~doc:"Baker logs" [ "b"; "baker" ] in
+  Arg.(value @@ flag doc)
 
 let read_file filename extract =
   let lines = ref [] in
@@ -20,7 +32,7 @@ let read_file filename extract =
 
 let write_file file lines =
   let oc = open_out file in
-  List.iter (fun (t, l) -> Printf.fprintf oc "%s, %f\n" t l) lines;
+  List.iter (fun (_t, l) -> Printf.fprintf oc "%f\n" l) lines;
   close_out oc
 
 let convert_to_seconds s =
@@ -39,6 +51,7 @@ let convert_to_seconds s =
     match b with
     | "s" -> float_of_string a
     | "ms" -> float_of_string a *. 0.001
+    | "us" -> float_of_string a *. 0.000001
     | "min" -> float_of_string a *. 60.0
     | _ -> (
         try convert_minutes a b
@@ -67,27 +80,71 @@ let extract_from_line s =
     Some (time, seconds)
   with Not_found -> None
 
-let counter = ref 0
+(** returns true if [s] contains at least one string in ls *)
+let rec contains s ls =
+  match ls with
+  | hd :: tl -> (
+      try
+        let _ = search_forward (regexp hd) s 0 in
+        true
+      with Not_found -> contains s tl )
+  | [] -> false
 
-let extract2 s =
-  let validated = "successfully validated" in
+let extract_from_line_block_validator s =
+  let completed = "completed in" in
   try
-    let _ = search_forward (regexp validated) s 0 in
-    counter := succ !counter;
-    if !counter = 50 then (
-      counter := 0;
-      let time = extract_timestamp s in
-      Some (time, 1.0) )
-    else None
+    let pos = search_forward (regexp completed) s 0 in
+    if not (contains s [ "validator.block" ]) then raise Not_found;
+    let time = extract_timestamp s in
+    let completed =
+      let ls = string_after s pos |> split (regexp "[ \t,]+") in
+      List.nth ls 2
+    in
+    let seconds = convert_to_seconds completed in
+    Some (time, seconds)
   with Not_found -> None
 
-let main file =
-  let lines = read_file file extract_from_line in
-  write_file "completed_times" lines;
-  let lines = read_file file extract2 in
-  write_file "block_validated" lines
+let extract_from_line_chain_validator s =
+  let completed = "completed in" in
+  try
+    let pos = search_forward (regexp completed) s 0 in
+    if not (contains s [ "prevalidator"; "validator.chain" ]) then
+      raise Not_found;
+    let time = extract_timestamp s in
+    let completed =
+      let ls = string_after s pos |> split (regexp "[ \t,]+") in
+      List.nth ls 2
+    in
+    let seconds = convert_to_seconds completed in
+    Some (time, seconds)
+  with Not_found -> None
 
-let main_term = Term.(const main $ file)
+let extract_from_baker s =
+  let validated = "validated block in" in
+  try
+    let pos = search_forward (regexp validated) s 0 in
+    let validated_in =
+      let ls = string_after s pos |> split (regexp "[ \t,]+") in
+      List.nth ls 3
+    in
+    let seconds = convert_to_seconds validated_in in
+    Some (0.0, seconds)
+  with Not_found -> None
+
+let main file separate baker =
+  if baker then
+    let lines = read_file file extract_from_baker in
+    write_file "baker_validated" lines
+  else if separate then (
+    let lines = read_file file extract_from_line_block_validator in
+    write_file "block_validator" lines;
+    let lines = read_file file extract_from_line_chain_validator in
+    write_file "chain_validator" lines )
+  else
+    let lines = read_file file extract_from_line in
+    write_file "completed_times" lines
+
+let main_term = Term.(const main $ file $ separate_logs $ baker)
 
 let () =
   let info = Term.info "Extract from file" in
