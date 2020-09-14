@@ -131,11 +131,12 @@ let extract_from_baker s =
     Some (0.0, seconds)
   with Not_found -> None
 
-let main file separate baker =
-  if baker then
-    let lines = read_file file extract_from_baker in
-    write_file "baker_validated" lines
-  else if separate then (
+let main file separate _baker =
+  (*if baker then
+      let lines = read_file file extract_from_baker in
+      write_file "baker_validated" lines
+    else*)
+  if separate then (
     let lines = read_file file extract_from_line_block_validator in
     write_file "block_validator" lines;
     let lines = read_file file extract_from_line_chain_validator in
