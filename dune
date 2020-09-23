@@ -1,4 +1,26 @@
 (executable
  (name text_extract)
  (modules text_extract)
- (libraries cmdliner logs logs.fmt re))
+ (libraries cmdliner fmt re))
+
+
+(executable
+ (name text_extract_executed)
+ (modules text_extract_executed)
+ (libraries cmdliner re fmt ))
+
+(executable
+ (name io_ops)
+ (modules io_ops)
+ (libraries logs logs.fmt lwt lwt.unix index.unix ))
+
+(executable
+ (name freeze_extract)
+ (modules freeze_extract)
+ (libraries cmdliner fmt re unix common))
+
+(library
+ (name common)
+ (modules common)
+ (libraries cmdliner re fmt ))
+
