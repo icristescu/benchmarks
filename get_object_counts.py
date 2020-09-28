@@ -2,6 +2,17 @@ import re
 import matplotlib.pyplot as plt
 import numpy as np
 import argparse
+import os
+
+def remove_freeze (object_nums, block_times):
+    new_object_num = []
+    new_block_times = []
+    for (num, time) in zip(object_nums, block_times):
+        if num != 0:
+            new_object_num = new_object_num + [num]
+            new_block_times = new_block_times + [time]
+    return new_object_num, new_block_times
+
 
 def main(log_file, block_validation_times_file):
     object_str = 'created by commit'
@@ -19,6 +30,13 @@ def main(log_file, block_validation_times_file):
         file_contents = reader.read().splitlines()
         block_times = [float(time) for time in file_contents]
 
+    object_num, block_times = remove_freeze(object_num, block_times)
+
+    with open('object_time_output','w') as f:
+        f.write('num_of_objects\ttime_to_create'+os.linesep)
+        for  (num, time) in zip(object_num, block_times):
+            content = str(num)+'\t'+str(time)
+            f.write(content + os.linesep)
 
     cumulative_block_times = np.cumsum(block_times)
     bins = np.array(cumulative_block_times)
