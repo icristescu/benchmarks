@@ -108,8 +108,7 @@ let extract_from_line_chain_validator s =
   let completed = "completed in" in
   try
     let pos = search_forward (regexp completed) s 0 in
-    if not (contains s [ "prevalidator"; "validator.chain" ]) then
-      raise Not_found;
+    if not (contains s [ "validator.chain" ]) then raise Not_found;
     let time = extract_timestamp s in
     let completed =
       let ls = string_after s pos |> split (regexp "[ \t,]+") in

@@ -12,22 +12,63 @@ let v fd =
   let lwt_fd = Lwt_unix.of_unix_file_descr ~blocking:false fd in
   { fd; cursor = 0L; lwt_fd }
 
-module Raw = struct
-  let really_write fd buf =
-    let rec aux off len =
-      let w = Unix.write fd buf off len in
-      if w = 0 || w = len then () else (aux [@tailcall]) (off + w) (len - w)
-    in
-    (aux [@tailcall]) 0 (Bytes.length buf)
+module type IO = sig
+  val write :
+    fd:Unix.file_descr ->
+    fd_offset:int64 ->
+    buffer:bytes ->
+    buffer_offset:int ->
+    length:int ->
+    int
 
-  let really_read fd len buf =
-    let rec aux off len =
-      let r = Unix.read fd buf off len in
-      if r = 0 then off (* end of file *)
-      else if r = len then off + r
-      else (aux [@tailcall]) (off + r) (len - r)
+  val read :
+    fd:Unix.file_descr ->
+    fd_offset:int64 ->
+    buffer:bytes ->
+    buffer_offset:int ->
+    length:int ->
+    int
+
+  val lseek : bool
+end
+
+module IO_Unix : IO = struct
+  let write ~fd ~fd_offset:_ ~buffer ~buffer_offset ~length =
+    Unix.write fd buffer buffer_offset length
+
+  let read ~fd ~fd_offset:_ ~buffer ~buffer_offset ~length =
+    Unix.read fd buffer buffer_offset length
+
+  let lseek = true
+end
+
+module IO_Index : IO = struct
+  open Index_unix.Syscalls
+
+  let write = pwrite
+
+  let read = pread
+
+  let lseek = false
+end
+
+module Raw (I : IO) = struct
+  let really_write fd buffer =
+    let rec aux buffer_offset length =
+      let w = I.write ~fd ~fd_offset:0L ~buffer ~buffer_offset ~length in
+      if w = 0 || w = length then ()
+      else (aux [@tailcall]) (buffer_offset + w) (length - w)
     in
-    (aux [@tailcall]) 0 len
+    (aux [@tailcall]) 0 (Bytes.length buffer)
+
+  let really_read fd length buffer =
+    let rec aux buffer_offset length =
+      let r = I.read ~fd ~fd_offset:0L ~buffer ~buffer_offset ~length in
+      if r = 0 then buffer_offset (* end of file *)
+      else if r = length then buffer_offset + r
+      else (aux [@tailcall]) (buffer_offset + r) (length - r)
+    in
+    (aux [@tailcall]) 0 length
 
   let lseek t off =
     if off = t.cursor then ()
@@ -36,40 +77,84 @@ module Raw = struct
       t.cursor <- off
 
   let unsafe_write t ~off buf =
-    lseek t off;
+    if I.lseek then lseek t off;
     let buf = Bytes.unsafe_of_string buf in
     really_write t.fd buf;
     t.cursor <- off ++ Int64.of_int (Bytes.length buf);
     t.cursor
 
   let unsafe_read t ~off ~len buf =
-    lseek t off;
+    if I.lseek then lseek t off;
     let n = really_read t.fd len buf in
     t.cursor <- off ++ Int64.of_int n;
     n
 end
 
-module Wrap_lwt_raw = struct
-  let really_write lwt_fd fd buf =
-    let rec aux off len =
-      Lwt_unix.wrap_syscall Lwt_unix.Write lwt_fd (fun () ->
-          Unix.write fd buf off len)
-      >>= fun w ->
-      if w = 0 || w = len then Lwt.return_unit
-      else (aux [@tailcall]) (off + w) (len - w)
-    in
-    (aux [@tailcall]) 0 (Bytes.length buf)
+module type Lwt_IO = sig
+  val write :
+    lwt_fd:Lwt_unix.file_descr ->
+    fd:Unix.file_descr ->
+    fd_offset:int64 ->
+    buffer:bytes ->
+    buffer_offset:int ->
+    length:int ->
+    int Lwt.t
 
-  let really_read lwt_fd fd len buf =
-    let rec aux off len =
-      Lwt_unix.wrap_syscall Lwt_unix.Write lwt_fd (fun () ->
-          Unix.read fd buf off len)
-      >>= fun r ->
-      if r = 0 then Lwt.return off (* end of file *)
-      else if r = len then Lwt.return (off + r)
-      else (aux [@tailcall]) (off + r) (len - r)
+  val read :
+    lwt_fd:Lwt_unix.file_descr ->
+    fd:Unix.file_descr ->
+    fd_offset:int64 ->
+    buffer:bytes ->
+    buffer_offset:int ->
+    length:int ->
+    int Lwt.t
+
+  val lseek : bool
+end
+
+module Lwt_Unix : Lwt_IO = struct
+  let write ~lwt_fd ~fd:_ ~fd_offset:_ ~buffer ~buffer_offset ~length =
+    Lwt_unix.write lwt_fd buffer buffer_offset length
+
+  let read ~lwt_fd ~fd:_ ~fd_offset:_ ~buffer ~buffer_offset ~length =
+    Lwt_unix.read lwt_fd buffer buffer_offset length
+
+  let lseek = true
+end
+
+module Wrap_Index_IO : Lwt_IO = struct
+  open Index_unix.Syscalls
+
+  let write ~lwt_fd ~fd ~fd_offset ~buffer ~buffer_offset ~length =
+    Lwt_unix.wrap_syscall Lwt_unix.Write lwt_fd (fun () ->
+        pwrite ~fd ~fd_offset ~buffer ~buffer_offset ~length)
+
+  let read ~lwt_fd ~fd ~fd_offset ~buffer ~buffer_offset ~length =
+    Lwt_unix.wrap_syscall Lwt_unix.Read lwt_fd (fun () ->
+        pread ~fd ~fd_offset ~buffer ~buffer_offset ~length)
+
+  let lseek = false
+end
+
+module Lwt_raw (I : Lwt_IO) = struct
+  let really_write lwt_fd fd buffer =
+    let rec aux buffer_offset length =
+      I.write ~lwt_fd ~fd ~fd_offset:0L ~buffer ~buffer_offset ~length
+      >>= fun w ->
+      if w = 0 || w = length then Lwt.return_unit
+      else (aux [@tailcall]) (buffer_offset + w) (length - w)
     in
-    (aux [@tailcall]) 0 len
+    (aux [@tailcall]) 0 (Bytes.length buffer)
+
+  let really_read lwt_fd fd length buffer =
+    let rec aux buffer_offset length =
+      I.read ~lwt_fd ~fd ~fd_offset:0L ~buffer ~buffer_offset ~length
+      >>= fun r ->
+      if r = 0 then Lwt.return buffer_offset (* end of file *)
+      else if r = length then Lwt.return (buffer_offset + r)
+      else (aux [@tailcall]) (buffer_offset + r) (length - r)
+    in
+    (aux [@tailcall]) 0 length
 
   let lseek t off =
     if off = t.cursor then ()
@@ -78,53 +163,15 @@ module Wrap_lwt_raw = struct
       t.cursor <- off
 
   let unsafe_write t ~off buf =
-    lseek t off;
+    if I.lseek then lseek t off;
     let buf = Bytes.unsafe_of_string buf in
     really_write t.lwt_fd t.fd buf >|= fun () ->
     t.cursor <- off ++ Int64.of_int (Bytes.length buf);
     t.cursor
 
   let unsafe_read t ~off ~len buf =
-    lseek t off;
+    if I.lseek then lseek t off;
     really_read t.lwt_fd t.fd len buf >|= fun n ->
-    t.cursor <- off ++ Int64.of_int n;
-    n
-end
-
-module Lwt_raw = struct
-  let really_write fd buf =
-    let rec aux off len =
-      Lwt_unix.write fd buf off len >>= fun w ->
-      if w = 0 || w = len then Lwt.return_unit
-      else (aux [@tailcall]) (off + w) (len - w)
-    in
-    (aux [@tailcall]) 0 (Bytes.length buf)
-
-  let really_read fd len buf =
-    let rec aux off len =
-      Lwt_unix.read fd buf off len >>= fun r ->
-      if r = 0 then Lwt.return off (* end of file *)
-      else if r = len then Lwt.return (off + r)
-      else (aux [@tailcall]) (off + r) (len - r)
-    in
-    (aux [@tailcall]) 0 len
-
-  let lseek t off =
-    if off = t.cursor then ()
-    else
-      let _ = Unix.LargeFile.lseek t.fd off Unix.SEEK_SET in
-      t.cursor <- off
-
-  let unsafe_write t ~off buf =
-    lseek t off;
-    let buf = Bytes.unsafe_of_string buf in
-    really_write t.lwt_fd buf >|= fun () ->
-    t.cursor <- off ++ Int64.of_int (Bytes.length buf);
-    t.cursor
-
-  let unsafe_read t ~off ~len buf =
-    lseek t off;
-    really_read t.lwt_fd len buf >|= fun n ->
     t.cursor <- off ++ Int64.of_int n;
     n
 end
@@ -179,21 +226,41 @@ let random_char () = char_of_int (Random.int 256)
 
 let random_string () = String.init element_size (fun _i -> random_char ())
 
-(* let arr = ref [||] *)
+module type Bench_IO = sig
+  val read : s -> off:int64 -> bytes -> int
 
-module Unix_bench = struct
-  open Raw
+  val write : s -> off:int64 -> string -> int64
+
+  val name : string
+end
+
+module Bench_unix : Bench_IO = struct
+  open Raw (IO_Unix)
 
   let read t ~off buf = unsafe_read t.raw ~off ~len:(Bytes.length buf) buf
 
   let write t ~off buf = unsafe_write t.raw ~off buf
 
+  let name = "io_unix"
+end
+
+module Bench_index : Bench_IO = struct
+  open Raw (IO_Index)
+
+  let read t ~off buf = unsafe_read t.raw ~off ~len:(Bytes.length buf) buf
+
+  let write t ~off buf = unsafe_write t.raw ~off buf
+
+  let name = "io_index"
+end
+
+module Bench (B : Bench_IO) = struct
   let write t =
     let rec aux off i =
       if i = nb_elements then ()
       else
         let random = random_string () in
-        let off = write t ~off random in
+        let off = B.write t ~off random in
         aux off (i + 1)
     in
     aux start_off 0
@@ -203,7 +270,7 @@ module Unix_bench = struct
       if i = nb_elements then ()
       else
         let buf = Bytes.create element_size in
-        let n = read t ~off buf in
+        let n = B.read t ~off buf in
         aux (off ++ Int64.of_int n) (i + 1)
     in
     aux start_off 0
@@ -217,37 +284,54 @@ module Unix_bench = struct
     let t = openfile "store.pack" in
     let write_time = with_timer (fun () -> write t) in
     let read_time = with_timer (fun () -> read t) in
-    Fmt.epr
-      "unix sys call nb_elements = %d; element_size = %d\n\
-      \ write = %f, read = %f\n"
-      nb_elements element_size write_time read_time;
+    Fmt.epr "[%s] write = %f, read = %f\n" B.name write_time read_time;
     close t
 end
 
-module Lwt_unix_bench = struct
-  let read ~wrap t ~off buf =
-    if wrap then Wrap_lwt_raw.unsafe_read t.raw ~off ~len:(Bytes.length buf) buf
-    else Lwt_raw.unsafe_read t.raw ~off ~len:(Bytes.length buf) buf
+module type Bench_Lwt = sig
+  val read : s -> off:int64 -> bytes -> int Lwt.t
 
-  let write ~wrap t ~off buf =
-    if wrap then Wrap_lwt_raw.unsafe_write t.raw ~off buf
-    else Lwt_raw.unsafe_write t.raw ~off buf
+  val write : s -> off:int64 -> string -> int64 Lwt.t
 
-  let write ~wrap t =
+  val name : string
+end
+
+module Bench_lwt_unix : Bench_Lwt = struct
+  open Lwt_raw (Lwt_Unix)
+
+  let read t ~off buf = unsafe_read t.raw ~off ~len:(Bytes.length buf) buf
+
+  let write t ~off buf = unsafe_write t.raw ~off buf
+
+  let name = "lwt_io_unix"
+end
+
+module Bench_wrap_index : Bench_Lwt = struct
+  open Lwt_raw (Wrap_Index_IO)
+
+  let read t ~off buf = unsafe_read t.raw ~off ~len:(Bytes.length buf) buf
+
+  let write t ~off buf = unsafe_write t.raw ~off buf
+
+  let name = "lwt_io_index"
+end
+
+module Lwt_bench (B : Bench_Lwt) = struct
+  let write t =
     let rec aux off i =
       if i = nb_elements then Lwt.return_unit
       else
         let random = random_string () in
-        write ~wrap t ~off random >>= fun off -> aux off (i + 1)
+        B.write t ~off random >>= fun off -> aux off (i + 1)
     in
     aux start_off 0
 
-  let read ~wrap t =
+  let read t =
     let rec aux off i =
       if i = nb_elements then Lwt.return_unit
       else
         let buf = Bytes.create element_size in
-        read ~wrap t ~off buf >>= fun n -> aux (off ++ Int64.of_int n) (i + 1)
+        B.read t ~off buf >>= fun n -> aux (off ++ Int64.of_int n) (i + 1)
     in
     aux start_off 0
 
@@ -255,35 +339,21 @@ module Lwt_unix_bench = struct
     let t0 = Sys.time () in
     f () >|= fun () -> Sys.time () -. t0
 
-  let bench_wrap () =
-    let t = openfile "store.pack" in
-    with_timer (fun () -> write ~wrap:true t) >>= fun write_time ->
-    with_timer (fun () -> read ~wrap:true t) >|= fun read_time ->
-    Fmt.epr
-      "wrap_syscall unix sys call nb_elements = %d; element_size = %d\n\
-      \ write = %f, read = %f\n"
-      nb_elements element_size write_time read_time;
-    close t
-
   let bench () =
     let t = openfile "store.pack" in
-    with_timer (fun () -> write ~wrap:false t) >>= fun write_time ->
-    with_timer (fun () -> read ~wrap:false t) >|= fun read_time ->
-    Fmt.epr
-      "lwt_unix sys call nb_elements = %d; element_size = %d\n\
-      \ write = %f, read = %f\n"
-      nb_elements element_size write_time read_time;
+    with_timer (fun () -> write t) >>= fun write_time ->
+    with_timer (fun () -> read t) >|= fun read_time ->
+    Fmt.epr "[%s] write = %f, read = %f\n" B.name write_time read_time;
     close t
 end
 
-(* let count = ref 0 *)
+module B1 = Bench (Bench_unix)
+module B2 = Bench (Bench_index)
+module B3 = Lwt_bench (Bench_lwt_unix)
+module B4 = Lwt_bench (Bench_wrap_index)
 
 let () =
-  (* let r = random_string () in *)
-  (* arr := Array.make nb_elements r; *)
-  (* Fmt.epr "with array in memory\n"; *)
-  Unix_bench.bench ();
-  Lwt_main.run (Lwt_unix_bench.bench_wrap ());
-  Lwt_main.run (Lwt_unix_bench.bench ())
-
-(* Array.iter (fun i -> count := String.length i + !count) !arr *)
+  Fmt.epr "nb_elements = %d; element_size = %d\n" nb_elements element_size;
+  B1.bench ();
+  B2.bench ();
+  Lwt_main.run (B3.bench () >>= B4.bench)
