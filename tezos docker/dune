@@ -1,0 +1,6 @@
+(executable
+ (name text_extract)
+ (modules text_extract)
+ (libraries cmdliner fmt re))
+
+
