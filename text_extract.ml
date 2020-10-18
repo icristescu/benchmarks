@@ -35,6 +35,11 @@ let write_file file lines =
   List.iter (fun (_t, l) -> Printf.fprintf oc "%f\n" l) lines;
   close_out oc
 
+let write_file_1 file lines =
+  let oc = open_out file in
+  List.iter (fun (_t, l) -> Printf.fprintf oc "%s\n" l) lines;
+  close_out oc
+
 let convert_to_seconds s =
   let rec convert_minutes a b =
     let pos = search_forward (regexp "[0-9]") b 0 in
@@ -130,12 +135,27 @@ let extract_from_baker s =
     Some (0.0, seconds)
   with Not_found -> None
 
-let main file separate _baker =
+let objects s =
+  let validated = "Objects created by commit" in
+  try
+    let pos = search_forward (regexp validated) s 0 in
+    (* Fmt.epr "found pos %d @." pos; *)
+    let adds =
+      let ls = string_after s pos |> split (regexp "[ \t,]+") in
+      List.nth ls 4
+    in
+    Some (0.0, adds)
+  with Not_found -> None
+
+let main file separate baker =
   (*if baker then
       let lines = read_file file extract_from_baker in
       write_file "baker_validated" lines
     else*)
-  if separate then (
+  if baker then
+    let lines = read_file file objects in
+    write_file_1 "adds" lines
+  else if separate then (
     let lines = read_file file extract_from_line_block_validator in
     write_file "block_validator" lines;
     let lines = read_file file extract_from_line_chain_validator in
