@@ -13,9 +13,17 @@ let separate_logs =
   in
   Arg.(value @@ flag doc)
 
-let baker =
-  let doc = Arg.info ~doc:"Baker logs" [ "b"; "baker" ] in
+let objects_added =
+  let doc = Arg.info ~doc:"Objects added by each commit" [ "o"; "objects" ] in
   Arg.(value @@ flag doc)
+
+let maxrss =
+  let doc = Arg.info ~doc:"Extract maxrss" [ "m"; "maxrss" ] in
+  Arg.(value @@ flag doc)
+
+let run_id =
+  let doc = Arg.info ~doc:"Run id." [ "i"; "id" ] in
+  Arg.(value @@ opt int 1 doc)
 
 let read_file filename extract =
   let lines = ref [] in
@@ -32,7 +40,7 @@ let read_file filename extract =
 
 let write_file file lines =
   let oc = open_out file in
-  List.iter (fun (_t, l) -> Printf.fprintf oc "%f\n" l) lines;
+  List.iter (fun (_, l) -> Printf.fprintf oc "%f\n" l) lines;
   close_out oc
 
 let write_file_1 file lines =
@@ -69,8 +77,10 @@ let extract_timestamp s =
     let ls = split (regexp "[ \t,]+") s in
     List.nth ls 2
   in
-  let ls = split (regexp "[:]") time in
-  List.fold_right (fun a acc -> a ^ acc) ls ""
+  time
+
+(*  let ls = split (regexp "[:]") time in
+  List.fold_right (fun a acc -> a ^ acc) ls ""*)
 
 let extract_from_line s =
   let completed = "completed in" in
@@ -142,29 +152,40 @@ let objects s =
     (* Fmt.epr "found pos %d @." pos; *)
     let adds =
       let ls = string_after s pos |> split (regexp "[ \t,]+") in
-      List.nth ls 4
+      List.nth ls 6
     in
     Some (0.0, adds)
   with Not_found -> None
 
-let main file separate baker =
-  (*if baker then
-      let lines = read_file file extract_from_baker in
-      write_file "baker_validated" lines
-    else*)
-  if baker then
+let extract_maxrss s =
+  try
+    let pos = search_forward (regexp "maxrss") s 0 in
+    let m =
+      let ls = string_after s pos |> split (regexp "[ \t,]+") in
+      List.nth ls 1
+    in
+    Some (0.0, m)
+  with Not_found -> None
+
+let main file separate objects_added maxrss run_id =
+  let run_id = Printf.sprintf "%d" run_id in
+  if objects_added then
     let lines = read_file file objects in
-    write_file_1 "adds" lines
+    write_file_1 (run_id ^ "-adds") lines
   else if separate then (
     let lines = read_file file extract_from_line_block_validator in
-    write_file "block_validator" lines;
+    write_file (run_id ^ "-block_validator") lines;
     let lines = read_file file extract_from_line_chain_validator in
-    write_file "chain_validator" lines )
+    write_file (run_id ^ "-chain_validator") lines )
+  else if maxrss then
+    let lines = read_file file extract_maxrss in
+    write_file_1 (run_id ^ "-maxrss") lines
   else
     let lines = read_file file extract_from_line in
-    write_file "completed_times" lines
+    write_file (run_id ^ "-completed_times") lines
 
-let main_term = Term.(const main $ file $ separate_logs $ baker)
+let main_term =
+  Term.(const main $ file $ separate_logs $ objects_added $ maxrss $ run_id)
 
 let () =
   let info = Term.info "Extract from file" in
