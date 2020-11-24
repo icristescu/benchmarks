@@ -2,7 +2,7 @@ Build and run this image
 
 ```
 docker build . -t tezos_test
-docker run --mount type=bind,source=<path-to-archive-store>,target=/data tezos_test ./tezos-script.sh
+docker run --mount type=bind,source=<path-to-archive-store>,target=/data tezos_test ./tezos_script.sh
 ```
 
 where `<path-to-archive-store>` should be a folder containing `archive_store` and the `blocks_above_933913` file. Note that the `archive_store` will be modified by the benchmarks, so be sure that it is a copy of the initial archive store to benchmark (which you can get from `/data/ioana/init_archive_store/` on `comanche`.
