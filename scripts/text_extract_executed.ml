@@ -58,14 +58,14 @@ let extract s =
       List.nth ls 2
     in
     let seconds = convert_to_seconds time in
-    (*if contains s [ "Context.init" ] then init := seconds :: !init
+    if contains s [ "Context.init" ] then init := seconds :: !init
     else if contains s [ "Context.checkout" ] then
       checkout := seconds :: !checkout
     else if contains s [ "Context.get_protocol" ] then
       get_protocol := seconds :: !get_protocol
     else if contains s [ "Context.commit" ] then commit := seconds :: !commit
-    else *)
-    if contains s [ "RO sync" ] then sync := seconds :: !sync
+    (* else  *)
+    (* if contains s [ "RO sync" ] then sync := seconds :: !sync *)
     (* else Fmt.failwith "line %s" s *)
   with Not_found -> ()
 
