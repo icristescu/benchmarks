@@ -3,7 +3,6 @@
  (modules text_extract)
  (libraries cmdliner fmt re))
 
-
 (executable
  (name text_extract_executed)
  (modules text_extract_executed)
@@ -24,3 +23,12 @@
  (modules common)
  (libraries cmdliner re fmt ))
 
+(executable
+ (name compare_traces)
+ (modules compare_traces)
+ (libraries memtrace mtime cmdliner))
+
+(executable
+ (name extract_time_window)
+ (modules extract_time_window)
+ (libraries cmdliner re))
