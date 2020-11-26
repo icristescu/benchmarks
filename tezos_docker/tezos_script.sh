@@ -1,6 +1,6 @@
 #! /usr/bin/env bash
 
-export RUN_ID=$RANDOM
+export RUN_ID=`date +"%Y-%b-%d-%H-%M-%S"`
 ./tezos-node run --singleprocess --rpc-addr :8732 --no-bootstrap-peers --connections 0 --data-dir /data/archive_store > /data/$RUN_ID-"node_logs" 2>&1 & \
 # start the baker once the node is running
 sleep 60;
