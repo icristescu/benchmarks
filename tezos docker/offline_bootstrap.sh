@@ -6,12 +6,17 @@ export RUN_ID=$RANDOM
 sleep 60;
 ./tezos-baker-006-PsCARTHA run with local node /data/archive_store /data/blocks_above_933913 > /data/baker_logs 2>&1 & \
 
-# kill the node after 5 minutes for testing
-sleep 300;
+# extract csv files from the logs
+sleep 120;
+cd ../work;
+for i in {1..10}; do
+echo -n "loop $i" > /data/loop;
+dune exec -- ./text_extract.exe -f /data/$RUN_ID-"node_logs" -s -i $RUN_ID; cp $RUN_ID-"block_validator" /data/.; sleep 60; done &&\
+
+# kill the node after 10 minutes for testing
 ps -ef | grep tezos-node | grep -v grep | awk '{print $2}' | xargs kill && \
 
-# extract csv files from the logs
-cd ../work; dune exec -- ./text_extract.exe -f /data/$RUN_ID-"node_logs" -s -i $RUN_ID && \
+dune exec -- ./text_extract.exe -f /data/$RUN_ID-"node_logs" -s -i $RUN_ID && \
 dune exec -- ./text_extract.exe -f /data/$RUN_ID-"node_logs" -o -i $RUN_ID && \
 
 # plot them and save the images produced in the data folder

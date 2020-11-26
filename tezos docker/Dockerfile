@@ -8,11 +8,15 @@ RUN python3 -m pip install matplotlib
 
 RUN python3 -m pip install pandas
 
+ARG tezos_branch
+
 RUN git clone https://github.com/icristescu/tezos.git
 
 COPY --chown=opam:opam ["tezos.export", "tezos/tezos.export"]
 
-COPY --chown=opam:opam ["tezos_script.sh", "tezos/tezos_script.sh"]
+COPY --chown=opam:opam ["offline_bootstrap.sh", "tezos/offline_bootstrap.sh"]
+
+COPY --chown=opam:opam ["bootstrap.sh", "tezos/bootstrap.sh"]
 
 COPY --chown=opam:opam ["plot.py", "work/plot.py"]
 
@@ -22,7 +26,7 @@ COPY --chown=opam:opam ["dune", "work/dune"]
 
 WORKDIR tezos
 
-RUN git checkout layers_bench_context
+RUN git checkout $tezos_branch
 
 RUN opam switch 4.09
 
