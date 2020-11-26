@@ -1,6 +1,6 @@
 #! /usr/bin/env bash
 
-export RUN_ID=$RANDOM;
+export RUN_ID=`date +"%Y-%b-%d-%H-%M-%S"`;
 ./tezos-node run --singleprocess --connections 3 --data-dir ./data > /data/$RUN_ID-"node_logs" 2>&1 & \
 
 sleep 18000;
