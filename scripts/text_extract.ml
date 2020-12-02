@@ -25,6 +25,10 @@ let run_id =
   let doc = Arg.info ~doc:"Run id." [ "i"; "id" ] in
   Arg.(value @@ opt int 1 doc)
 
+let commit =
+  let doc = Arg.info ~doc:"Extract commit timers" [ "c"; "commit" ] in
+  Arg.(value @@ flag doc)
+
 let read_file filename extract =
   let lines = ref [] in
   let chan = open_in filename in
@@ -164,7 +168,18 @@ let extract_maxrss s =
     Some (0.0, m)
   with Not_found -> None
 
-let main file separate objects_added maxrss run_id =
+let extract_commit s =
+  try
+    let pos = search_forward (regexp "Context.commit executed in") s 0 in
+    let x =
+      let ls = string_after s pos |> split (regexp "[ \t,]+") in
+      List.nth ls 3
+    in
+    let seconds = convert_to_seconds x in
+    Some (0.0, seconds)
+  with Not_found -> None
+
+let main file separate objects_added maxrss commit run_id =
   let run_id = Printf.sprintf "%d" run_id in
   if objects_added then
     let lines = read_file file objects in
@@ -177,13 +192,17 @@ let main file separate objects_added maxrss run_id =
   else if maxrss then
     let lines = read_file file extract_maxrss in
     write_file_1 (run_id ^ "-maxrss") lines
+  else if commit then
+    let lines = read_file file extract_commit in
+    write_file (run_id ^ "-commit") lines
   else
     let lines = read_file file extract_from_line in
     write_file (run_id ^ "-completed_times") lines
 
 let main_term =
-  Term.(const main $ file $ separate_logs $ objects_added $ maxrss $ run_id)
+  Term.(
+    const main $ file $ separate_logs $ objects_added $ maxrss $ commit $ run_id)
 
 let () =
-  let info = Term.info "Extract from file" in
+  let info = Term.info "Extract from the logs of a tezos node" in
   Term.exit @@ Term.eval (main_term, info)
