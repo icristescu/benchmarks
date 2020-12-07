@@ -50,7 +50,9 @@ RUN opam pin add irmin-layers.dev https://github.com/mirage/irmin.git#master --i
 
 RUN opam pin add irmin-pack.dev https://github.com/mirage/irmin.git#master --ignore-pin-depends
 
-RUN opam reinstall repr ppx_repr index irmin irmin-layers irmin-pack
+RUN opam pin add rusage.dev https://github.com/CraigFe/ocaml-rusage.git --ignore-pin-depends
+
+RUN opam reinstall repr ppx_repr index irmin irmin-layers irmin-pack rusage
 
 ADD --chown=opam [".", "."]
 
