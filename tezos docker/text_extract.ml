@@ -23,7 +23,7 @@ let maxrss =
 
 let run_id =
   let doc = Arg.info ~doc:"Run id." [ "i"; "id" ] in
-  Arg.(value @@ opt int 1 doc)
+  Arg.(value @@ opt string "current_run" doc)
 
 let read_file filename extract =
   let lines = ref [] in
@@ -168,7 +168,6 @@ let extract_maxrss s =
   with Not_found -> None
 
 let main file separate objects_added maxrss run_id =
-  let run_id = Printf.sprintf "%d" run_id in
   if objects_added then
     let lines = read_file file objects in
     write_file_1 (run_id ^ "-adds") lines

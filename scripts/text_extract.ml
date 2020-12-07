@@ -180,7 +180,6 @@ let extract_commit s =
   with Not_found -> None
 
 let main file separate objects_added maxrss commit run_id =
-  let run_id = Printf.sprintf "%d" run_id in
   if objects_added then
     let lines = read_file file objects in
     write_file_1 (run_id ^ "-adds") lines
