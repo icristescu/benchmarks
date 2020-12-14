@@ -9,6 +9,11 @@ docker run --mount type=bind,source=<path-to-archive-store>,target=/data tezos_t
 
 where `<path-to-archive-store>` should be a folder containing `archive_store` and the `blocks_above_933913` file. Note that the `archive_store` will be modified by the benchmarks, so be sure that it is a copy of the initial archive store to benchmark (which you can get from `/data/ioana/init_archive_store/` on `comanche`.
 
+In the `offline_bootstrap.sh` script, `tezos_node` connects to a baker on port `8732`. `tezos-baker-006-PsCARTHA` is a fake baker: it reads file `blocks_above_933913`, which contains already produced blocks on mainnet, and it tries to simulate the operations as it would have done if it was normally producing blocks. So, the baker uses the file to generate the next block with id `933914` and to send it over to the `tezos_node`.
+The `baker` sends id `933914` to the node.
+
+Once the `offline_bootsrap.sh` finishes, all blocks have been read from the file and sent over to the node; they are now in the `archive_store`.
+
 On some systems there might be permission issues, so run it with `--user=root`.
 
 When the benchmarks finished, it will generate two files log files at `<path-to-archive-store>`, one for the node and one for the baker. It will also generate two plots `blocks_validated.png` and `obj_added.png`.
@@ -20,4 +25,4 @@ docker run --mount type=bind,source=<path-to-data>,target=/data tezos_test ./boo
 ```
 where <path-to-data> is the folder where the logs and the resulting plots will be stored.
 
-
+The `init_archive_store` contains the store with blocks up to `933913` and it is used to initialize the store for both the node and the baker. During the benchmarks blocks are added to the store, so you need to reinitialise your store before every run of your benchmarks (for instance by copying  `init_archive_store`). 
