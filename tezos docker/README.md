@@ -12,7 +12,7 @@ where `<path-to-archive-store>` should be a folder containing `archive_store` an
 In the `offline_bootstrap.sh` script, `tezos_node` connects to a baker on port `8732`. `tezos-baker-006-PsCARTHA` is a fake baker: it reads file `blocks_above_933913`, which contains already produced blocks on mainnet, and it tries to simulate the operations as it would have done if it was normally producing blocks. So, the baker uses the file to generate the next block with id `933914` and to send it over to the `tezos_node`.
 The `baker` sends id `933914` to the node.
 
-Once the `offline_bootsrap.sh` finishes, all blocks that have been read from the file and sent over to the node; they are now in the archive store.
+Once the `offline_bootsrap.sh` finishes, all blocks have been read from the file and sent over to the node; they are now in the `archive_store`.
 
 On some systems there might be permission issues, so run it with `--user=root`.
 
