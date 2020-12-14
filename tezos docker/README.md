@@ -25,4 +25,4 @@ docker run --mount type=bind,source=<path-to-data>,target=/data tezos_test ./boo
 ```
 where <path-to-data> is the folder where the logs and the resulting plots will be stored.
 
-The `init_archive_store` contains the store with blocks upto `933913` and is used to initalize a store for the baker to read from. Once the `offline_script.sh` finishes executing it has read all the block that are to be read.
+The `init_archive_store` contains the store with blocks up to `933913` and it is used to initialize the store for both the node and the baker. During the benchmarks blocks are added to the store, so you need to reinitialise your store before every run of your benchmarks (for instance by copying  `init_archive_store`). 
