@@ -32,3 +32,19 @@
  (name extract_time_window)
  (modules extract_time_window)
  (libraries cmdliner re))
+
+(executable
+ (name extract_inodes)
+ (modules extract_inodes)
+ (libraries cmdliner re))
+
+(executable
+ (name extract_contents)
+ (modules extract_contents)
+ (libraries cmdliner fmt re))
+
+
+(executable
+ (name extract_index)
+ (modules extract_index)
+ (libraries cmdliner fmt re))
