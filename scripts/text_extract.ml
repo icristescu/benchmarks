@@ -153,13 +153,13 @@ let extract_from_baker s =
   with Not_found -> None
 
 let objects s =
-  let validated = "Objects created by commit" in
+  let validated = "commit_number" in
   try
     let pos = search_forward (regexp validated) s 0 in
     (* Fmt.epr "found pos %d @." pos; *)
     let adds =
       let ls = string_after s pos |> split (regexp "[ \t,]+") in
-      List.nth ls 6
+      List.nth ls 5
     in
     Some (0.0, adds)
   with Not_found -> None
