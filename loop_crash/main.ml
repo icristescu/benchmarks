@@ -9,6 +9,7 @@ type config = {
   bootstrap : int;
   continue : int;
   tezos_node : string;
+  logs_level : Logs.level option;
 }
 
 open struct
@@ -19,7 +20,7 @@ open struct
   let run_node node data_dir = Cmd.(v node % "run" % "--data-dir" % p data_dir)
 
   let reconstruct node data_dir =
-    Cmd.(v node % "run" % "--data-dir" % p data_dir)
+    Cmd.(v node % "storage" % "reconstruct-index" % "--data-dir" % p data_dir)
 
   let grep logs = Cmd.(v "grep" % "failed" % p logs)
 
@@ -29,9 +30,28 @@ open struct
 
   let mv data_dir log dst =
     OS.Cmd.run (mv data_dir dst) >>= fun () -> OS.Cmd.run (mv log dst)
+
+  let children () =
+    let tmp = OS.Dir.default_tmp () in
+    let tmp_file = Fpath.(tmp / "pids_tezos") in
+    Format.printf "using temporary file %a\n%!" Fpath.pp tmp_file;
+    OS.Cmd.(run_out Cmd.(v "ps" % "aux") |> to_file tmp_file) >>= fun () ->
+    OS.Cmd.(run_out Cmd.(v "grep" % "tezos" % p tmp_file) |> to_lines)
+    >>= function
+    | [] -> failwith "no tezos node running?"
+    | ls ->
+        List.fold_left
+          (fun acc line ->
+            let line' = Re.Str.(split (regexp "[ \t,]+")) line in
+            let pid = List.nth line' 1 in
+            Format.printf "killing pid %s\n%!" pid;
+            let pid = int_of_string pid in
+            pid :: acc)
+          [] ls
+        |> fun acc -> Ok acc
 end
 
-let wait pid =
+let _wait pid =
   let pid', status = Unix.waitpid [ Unix.WUNTRACED ] pid in
   if pid <> pid' then
     Fmt.failwith "I'm %d, expecting child %d, but got %d instead"
@@ -42,19 +62,23 @@ let wait pid =
       Format.printf "child %d signaled with %d\n%!" pid code
   | Unix.WSTOPPED code -> Format.printf "child %d stopped with %d\n%!" pid code
 
-let run_node node data_dir logs sleep =
+let run_node node data_dir logs ?(logs_level = Logs.Info) sleep =
   match Unix.fork () with
   | 0 ->
+      (match logs_level with
+      | Debug -> OS.Env.set_var "TEZOS_CONTEXT" (Some "vv")
+      | Info -> OS.Env.set_var "TEZOS_CONTEXT" (Some "v")
+      | _ -> OS.Env.set_var "TEZOS_CONTEXT" None)
+      >>= fun () ->
       let run_node = run_node node data_dir in
       Format.printf "child %d: %a\n%!" (Unix.getpid ()) Cmd.pp run_node;
       OS.Cmd.(run_out ~err:err_run_out run_node |> to_file logs) >>= fun _ ->
       exit 0
-  | pid ->
+  | _ ->
       Unix.sleep sleep;
-      Unix.kill pid 9;
-      wait pid;
-      Unix.sleep 60;
-      (* wait for process to completely shut down *)
+      children () >>= fun pids ->
+      List.iter (fun pid -> Unix.kill pid 9) pids;
+      Unix.sleep 10;
       Ok ()
 
 let run_reconstruct node data_dir logs =
@@ -92,44 +116,43 @@ let run conf id =
   let data0 = conf.data_dirs.(0) in
   let logs0 = conf.logs.(0) in
   cp conf.initial_dir data0 |> OS.Cmd.run >>= fun () ->
-  run_node data0 logs0 conf.bootstrap >>= fun () ->
+  run_node ~logs_level:Logs.Debug data0 logs0 conf.bootstrap >>= fun () ->
   let data1 = conf.data_dirs.(1) in
   let logs1 = conf.logs.(1) in
   cp data0 data1 |> OS.Cmd.run >>= fun () ->
-  Format.printf "delete %a\n%!" Fpath.pp Fpath.(data1 / "lock");
   OS.File.delete Fpath.(data1 / "lock") >>= fun () ->
-  OS.File.exists Fpath.(data1 / "lock") >>= function
-  | true -> failwith "should remove file"
-  | false -> (
-      run_node data1 logs1 conf.continue >>= fun () ->
-      (grep logs1 |> OS.Cmd.(run_status ~err:err_run_out)) >>= function
+  run_node data1 logs1 conf.continue >>= fun () ->
+  (grep logs1 |> OS.Cmd.(run_status ~err:err_run_out)) >>= function
+  | `Exited 1 ->
+      Format.printf "node works after crash\n%!";
+      s conf id
+  | `Exited 0 -> (
+      Format.printf "node fails after crash\n%!";
+      let data2 = conf.data_dirs.(2) in
+      let logs2 = conf.logs.(2) in
+      OS.Cmd.run (cp data1 data2) >>= fun () ->
+      OS.Dir.delete ~must_exist:true ~recurse:true
+        Fpath.(data2 / "context" / "index")
+      >>= fun () ->
+      run_reconstruct data2 logs2 >>= fun () ->
+      let data3 = conf.data_dirs.(3) in
+      let logs3 = conf.logs.(3) in
+      OS.Cmd.run (cp data2 data3) >>= fun () ->
+      OS.File.delete Fpath.(data3 / "lock") >>= fun () ->
+      run_node data3 logs3 conf.continue >>= fun () ->
+      (grep logs3 |> OS.Cmd.(run_status ~err:err_run_out)) >>= function
       | `Exited 1 ->
-          Format.printf "node works after crash\n%!";
-          s conf id
-      | `Exited 0 -> (
-          Format.printf "node fails after crash\n%!";
-          let data2 = conf.data_dirs.(2) in
-          let logs2 = conf.logs.(2) in
-          OS.Cmd.run (cp data1 data2) >>= fun () ->
-          OS.Dir.delete Fpath.(data2 / "context" / "index") >>= fun () ->
-          run_reconstruct data2 logs2 >>= fun () ->
-          let data3 = conf.data_dirs.(2) in
-          let logs3 = conf.logs.(3) in
-          OS.Cmd.run (cp data2 data3) >>= fun () ->
-          run_node data3 logs3 conf.continue >>= fun () ->
-          (grep logs3 |> OS.Cmd.(run_status ~err:err_run_out)) >>= function
-          | `Exited 1 ->
-              Format.printf "node works after reconstruct\n%!";
-              fs conf id
-          | `Exited 0 ->
-              Format.printf "node fails after reconstruct\n%!";
-              ff conf id
-          | status ->
-              Fmt.failwith "unexpected grep status %a" OS.Cmd.pp_status status)
+          Format.printf "node works after reconstruct\n%!";
+          fs conf id
+      | `Exited 0 ->
+          Format.printf "node fails after reconstruct\n%!";
+          ff conf id
       | status ->
           Fmt.failwith "unexpected grep status %a" OS.Cmd.pp_status status)
+  | status -> Fmt.failwith "unexpected grep status %a" OS.Cmd.pp_status status
 
-let main data_dir tezos_node bootstrap continue _loop =
+let main logs_level data_dir tezos_node bootstrap continue loop =
+  Printexc.record_backtrace true;
   OS.Dir.current () >>= fun current ->
   let initial_dir = Fpath.v data_dir in
   let current =
@@ -159,11 +182,24 @@ let main data_dir tezos_node bootstrap continue _loop =
       results_dir;
       bootstrap;
       continue;
+      logs_level;
     }
   in
-  Format.printf "run with data = %a\nresults =%a\nlogs = %a\n%!" Fpath.pp
-    data_dirs.(0) Fpath.pp results_dir Fpath.pp logs.(0);
-  string_of_int 0 |> run conf
+  Format.printf
+    "run with: node = %s\n\
+     initial_dir = %a\n\
+     data = %a\n\
+     results =%a\n\
+     logs = %a\n\
+     %!"
+    tezos_node Fpath.pp initial_dir Fpath.pp data_dirs.(0) Fpath.pp results_dir
+    Fpath.pp logs.(0);
+  List.fold_left
+    (fun acc i ->
+      acc >>= fun () ->
+      Format.printf "Run id = %d\n%!" i;
+      string_of_int i |> run conf)
+    (Ok ()) (List.init loop Fun.id)
 
 open Cmdliner
 
@@ -192,13 +228,14 @@ let tezos_node =
 
 let loop =
   let doc = Arg.info ~doc:"Number of loops." [ "loop" ] in
-  Arg.(value @@ opt int 10 doc)
+  Arg.(value @@ opt int 2 doc)
+
+let log_level = Logs_cli.level ()
 
 let main_term =
-  Term.(const main $ data_dir $ tezos_node $ bootstrap $ continue $ loop)
+  Term.(
+    const main $ log_level $ data_dir $ tezos_node $ bootstrap $ continue $ loop)
 
 let () =
   let info = Term.info ~doc:"Run tezos nodes" "main" in
   Term.exit @@ Term.eval (main_term, info)
-
-(* TODO add debug logs*)
