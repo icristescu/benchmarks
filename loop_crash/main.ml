@@ -31,23 +31,25 @@ open struct
   let mv data_dir log dst =
     OS.Cmd.run (mv data_dir dst) >>= fun () -> OS.Cmd.run (mv log dst)
 
-  let children () =
+  let tezos_processes () =
     let tmp = OS.Dir.default_tmp () in
     let tmp_file = Fpath.(tmp / "pids_tezos") in
     Format.printf "using temporary file %a\n%!" Fpath.pp tmp_file;
     OS.Cmd.(run_out Cmd.(v "ps" % "aux") |> to_file tmp_file) >>= fun () ->
     OS.Cmd.(run_out Cmd.(v "grep" % "tezos" % p tmp_file) |> to_lines)
-    >>= function
+    >>= fun l ->
+    match l with
     | [] -> failwith "no tezos node running?"
     | ls ->
         List.fold_left
           (fun acc line ->
             let line' = Re.Str.(split (regexp "[ \t,]+")) line in
             let pid = List.nth line' 1 in
-            Format.printf "killing pid %s\n%!" pid;
+            Format.printf "grep tezos pid %s\n%!" pid;
             let pid = int_of_string pid in
             pid :: acc)
           [] ls
+        |> List.sort Int.compare
         |> fun acc -> Ok acc
 end
 
@@ -74,16 +76,27 @@ let run_node node data_dir logs ?(logs_level = Logs.Info) sleep =
       Format.printf "child %d: %a\n%!" (Unix.getpid ()) Cmd.pp run_node;
       OS.Cmd.(run_out ~err:err_run_out run_node |> to_file logs) >>= fun _ ->
       exit 0
-  | pid ->
+  | pid -> (
+      let me = Unix.getpid () in
+      Format.printf "I'm process %d, child process is %d\n%!" me pid;
       Unix.sleep sleep;
-      children () >>= fun pids ->
-      let pids' = List.filter (fun p -> p <> pid) pids in
-      List.iter (fun pid -> Unix.kill pid 9) pids';
-      Unix.sleep 120;
-      children () >>= fun pids ->
-      List.iter (fun pid -> Unix.kill pid 9) pids;
-      Unix.sleep 10;
-      Ok ()
+      (* the child process launches the tezos node in a separate process - we
+         only kill one pid, the second one. *)
+      tezos_processes () >>= fun pids ->
+      List.filter (fun p -> p <> pid && p <> me) pids |> function
+      | [ _; child ] ->
+          Format.printf "killed %d\n%!" pid;
+          Unix.kill child 9;
+          Unix.sleep 120;
+          Format.printf "the run continues...\n%!";
+          tezos_processes () >>= fun pids ->
+          List.filter (fun p -> p <> me) pids
+          |> List.iter (fun pid ->
+                 Format.printf "killed %d\n%!" pid;
+                 Unix.kill pid 9);
+          Unix.sleep 10;
+          Ok ()
+      | _ -> failwith "unexpected tezos processes")
 
 let run_reconstruct node data_dir logs =
   let run_node = reconstruct node data_dir in
