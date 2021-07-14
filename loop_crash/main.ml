@@ -74,8 +74,12 @@ let run_node node data_dir logs ?(logs_level = Logs.Info) sleep =
       Format.printf "child %d: %a\n%!" (Unix.getpid ()) Cmd.pp run_node;
       OS.Cmd.(run_out ~err:err_run_out run_node |> to_file logs) >>= fun _ ->
       exit 0
-  | _ ->
+  | pid ->
       Unix.sleep sleep;
+      children () >>= fun pids ->
+      let pids' = List.filter (fun p -> p <> pid) pids in
+      List.iter (fun pid -> Unix.kill pid 9) pids';
+      Unix.sleep 120;
       children () >>= fun pids ->
       List.iter (fun pid -> Unix.kill pid 9) pids;
       Unix.sleep 10;
