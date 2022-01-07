@@ -13,7 +13,7 @@ module StepMap = struct
   include Map.Make (X)
 end
 
-type elt = [ `Node of t | `Contents of string ]
+type elt = string
 
 and map = elt StepMap.t
 
@@ -70,18 +70,15 @@ let fold : type acc. path:step list -> t -> acc -> acc Lwt.t =
   and aux_uniq : type r. (t, acc, r) folder =
    fun ~path acc d t k -> (aux [@tailcall]) ~path acc d t k
   and step : type r. (step * elt, acc, r) folder =
-   fun ~path acc d (s, v) k ->
-    let path = rcons path s in
-    match v with
-    | `Node n -> (aux_uniq [@tailcall]) ~path acc (d + 1) n k
-    | `Contents _c ->
-        let apply () =
-          incr counter;
-          if !counter mod 20_000 = 0 then stack_size !counter;
-          (* checkpoint "checkpoint after 50_000 contents"; *)
-          k acc
-        in
-        apply ()
+   fun ~path acc _d (s, _v) k ->
+    let _path = rcons path s in
+    let apply () =
+      incr counter;
+      if !counter mod 20_000 = 0 then stack_size !counter;
+      (* checkpoint "checkpoint after 50_000 contents"; *)
+      k acc
+    in
+    apply ()
   and steps : type r. ((step * elt) Seq.t, acc, r) folder =
    fun ~path acc d s k ->
     match s () with
@@ -107,7 +104,7 @@ let test () =
   let size = 830829 in
   let t =
     List.init size string_of_int
-    |> List.fold_left (fun acc i -> add acc i (`Contents i)) empty
+    |> List.fold_left (fun acc i -> add acc i i) empty
   in
   fold ~path:[] t [] >|= ignore
 
