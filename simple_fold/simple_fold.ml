@@ -18,33 +18,31 @@ let stack_size p =
   Fmt.epr "stack_size at position %d is %d \n%!" p stats.Gc.stack_size
 
 type ('a, 'r) cont = ('a -> 'r) -> 'r
-
-type ('v, 'acc, 'r) folder =
-  path:string list -> 'acc -> int -> 'v -> ('acc, 'r) cont
+type ('v, 'acc, 'r) folder = string list * 'acc * int * 'v -> ('acc, 'r) cont
 
 (* If we remove the path or the depth argument the test passes. *)
-let fold : type acc. path:string list -> t -> acc -> acc =
- fun ~path t acc ->
+let fold : type acc. string list * t * acc -> acc =
+ fun (path, t, acc) ->
   let counter = ref 0 in
   let rec step : type r. (string * string, acc, r) folder =
-   fun ~path:_ acc _d _h k ->
+   fun (_path, acc, _d, _h) k ->
     incr counter;
     if !counter mod 20_000 = 0 then stack_size !counter;
     k acc
   and steps : type r. ((string * string) Seq.t, acc, r) folder =
-   fun ~path acc d s k ->
+   fun (path, acc, d, s) k ->
     match s () with
     | Seq.Nil -> (k [@tailcall]) acc
     | Seq.Cons (h, t) ->
-        let steps' acc = (steps [@tailcall]) ~path acc d t k in
+        let steps' acc = (steps [@tailcall]) (path, acc, d, t) k in
         (* If we replace the call of step with its code, the test passes.*)
-        (step [@tailcall]) ~path acc d h steps'
+        (step [@tailcall]) (path, acc, d, h) steps'
   and map : type r. (t, acc, r) folder =
-   fun ~path acc d t k ->
+   fun (path, acc, d, t) k ->
     let bindings = StepMap.to_seq t in
-    (steps [@tailcall]) ~path acc d bindings k
+    (steps [@tailcall]) (path, acc, d, bindings) k
   in
-  map ~path acc 0 t Fun.id
+  map (path, acc, 0, t) Fun.id
 
 let test () =
   let size = 830829 in
@@ -52,6 +50,6 @@ let test () =
     List.init size string_of_int
     |> List.fold_left (fun acc i -> add acc i i) StepMap.empty
   in
-  fold ~path:[] t [] |> ignore
+  fold ([], t, []) |> ignore
 
 let () = test ()
