@@ -1,11 +1,9 @@
 let ( >>= ) = Lwt.Infix.( >>= )
 let ( >|= ) = Lwt.Infix.( >|= )
 
-type step = string
-
 module StepMap = struct
   module X = struct
-    type t = step
+    type t = string
 
     let compare = String.compare
   end
@@ -13,16 +11,14 @@ module StepMap = struct
   include Map.Make (X)
 end
 
-type elt = string
-
-and map = elt StepMap.t
+type map = string StepMap.t
 
 and t = Map of map
 
 let of_map m = Map m
 let empty = of_map StepMap.empty
 
-let add t step v : t =
+let add t step v =
   let (Map m) = t in
   StepMap.add step v m |> of_map
 
@@ -35,11 +31,9 @@ let stack_size p =
 type ('a, 'r) cont = ('a -> 'r Lwt.t) -> 'r Lwt.t
 
 type ('v, 'acc, 'r) folder =
-  path:step list -> 'acc -> int -> 'v -> ('acc, 'r) cont
+  path:string list -> 'acc -> int -> 'v -> ('acc, 'r) cont
 
-type 'a node_fn = step list -> step list -> 'a -> 'a Lwt.t
-
-let fold : type acc. path:step list -> t -> acc -> acc Lwt.t =
+let fold : type acc. path:string list -> t -> acc -> acc Lwt.t =
  fun ~path t acc ->
   let counter = ref 0 in
   let rec aux : type r. (t, acc, r) folder =
@@ -49,9 +43,7 @@ let fold : type acc. path:step list -> t -> acc -> acc Lwt.t =
       (map [@tailcall]) ~path acc d (Some m) k
     in
     next acc
-  and aux_uniq : type r. (t, acc, r) folder =
-   fun ~path acc d t k -> (aux [@tailcall]) ~path acc d t k
-  and step : type r. (step * elt, acc, r) folder =
+  and step : type r. (string * string, acc, r) folder =
    fun ~path acc _d (s, _v) k ->
     let _path = rcons path s in
     let apply () =
@@ -60,7 +52,7 @@ let fold : type acc. path:step list -> t -> acc -> acc Lwt.t =
       k acc
     in
     apply ()
-  and steps : type r. ((step * elt) Seq.t, acc, r) folder =
+  and steps : type r. ((string * string) Seq.t, acc, r) folder =
    fun ~path acc d s k ->
     match s () with
     | Seq.Nil -> (k [@tailcall]) acc
@@ -74,12 +66,10 @@ let fold : type acc. path:step list -> t -> acc -> acc Lwt.t =
     | Some m ->
         let bindings = StepMap.to_seq m in
         seq ~path acc d bindings k
-  and seq : type r. ((step * elt) Seq.t, acc, r) folder =
+  and seq : type r. ((string * string) Seq.t, acc, r) folder =
    fun ~path acc d bindings k -> (steps [@tailcall]) ~path acc d bindings k
   in
-  aux_uniq ~path acc 0 t Lwt.return
-
-let id _ _ acc = Lwt.return acc
+  aux ~path acc 0 t Lwt.return
 
 let test () =
   let size = 830829 in
