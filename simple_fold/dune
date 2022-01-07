@@ -1,0 +1,4 @@
+(executable
+ (name simple_fold)
+ (modules simple_fold)
+ (libraries logs logs.fmt lwt lwt.unix))
