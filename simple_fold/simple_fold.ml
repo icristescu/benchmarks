@@ -17,37 +17,13 @@ type elt = string
 
 and map = elt StepMap.t
 
-and info = { mutable map : map option }
+and t = Map of map
 
-and v = Map of map
-
-and t = { v : v }
-
-(* let of_map m =
- *   let info = { map = Some m } in
- *   let v = Map m in
- *   { v; info }
- * 
- * let cached_map t =
- *   match (t.v, t.info.map) with
- *   | Map m, None ->
- *       let m = Some m in
- *       t.info.map <- m;
- *       m
- *   | _, m -> m *)
-
-let of_map m =
-  let v = Map m in
-  { v }
-
-let cached_map { v } =
-  let (Map m) = v in
-  Some m
-
+let of_map m = Map m
 let empty = of_map StepMap.empty
 
 let add t step v : t =
-  let (Map m) = t.v in
+  let (Map m) = t in
   StepMap.add step v m |> of_map
 
 let rcons t s = t @ [ s ]
@@ -69,9 +45,8 @@ let fold : type acc. path:step list -> t -> acc -> acc Lwt.t =
   let rec aux : type r. (t, acc, r) folder =
    fun ~path acc d t k ->
     let next acc =
-      match cached_map t with
-      | Some n -> (map [@tailcall]) ~path acc d (Some n) k
-      | None -> k acc
+      let (Map m) = t in
+      (map [@tailcall]) ~path acc d (Some m) k
     in
     next acc
   and aux_uniq : type r. (t, acc, r) folder =
