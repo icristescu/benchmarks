@@ -8,17 +8,9 @@ module StepMap = struct
   include Map.Make (X)
 end
 
-type map = string StepMap.t
+type t = string StepMap.t
 
-and t = Map of map
-
-let of_map m = Map m
-let empty = of_map StepMap.empty
-
-let add t step v =
-  let (Map m) = t in
-  StepMap.add step v m |> of_map
-
+let add t step v = StepMap.add step v t
 let rcons t s = t @ [ s ]
 
 let stack_size p =
@@ -51,8 +43,7 @@ let fold : type acc. path:string list -> t -> acc -> acc =
             (steps [@tailcall]) ~path acc d t k)
   and map : type r. (t, acc, r) folder =
    fun ~path acc d t k ->
-    let (Map m) = t in
-    let bindings = StepMap.to_seq m in
+    let bindings = StepMap.to_seq t in
     (steps [@tailcall]) ~path acc d bindings k
   in
   map ~path acc 0 t Fun.id
@@ -61,7 +52,7 @@ let test () =
   let size = 830829 in
   let t =
     List.init size string_of_int
-    |> List.fold_left (fun acc i -> add acc i i) empty
+    |> List.fold_left (fun acc i -> add acc i i) StepMap.empty
   in
   fold ~path:[] t [] |> ignore
 
