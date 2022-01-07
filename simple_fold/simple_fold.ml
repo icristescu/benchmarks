@@ -37,14 +37,7 @@ type ('v, 'acc, 'r) folder =
 let fold : type acc. path:string list -> t -> acc -> acc Lwt.t =
  fun ~path t acc ->
   let counter = ref 0 in
-  let rec aux : type r. (t, acc, r) folder =
-   fun ~path acc d t k ->
-    let next acc =
-      let (Map m) = t in
-      (map [@tailcall]) ~path acc d (Some m) k
-    in
-    next acc
-  and step : type r. (string * string, acc, r) folder =
+  let rec step : type r. (string * string, acc, r) folder =
    fun ~path:_ acc _d (_s, _v) k ->
     let apply () =
       incr counter;
@@ -59,15 +52,13 @@ let fold : type acc. path:string list -> t -> acc -> acc Lwt.t =
     | Seq.Cons (h, t) ->
         (step [@tailcall]) ~path acc d h (fun acc ->
             (steps [@tailcall]) ~path acc d t k)
-  and map : type r. (map option, acc, r) folder =
-   fun ~path acc d m k ->
-    match m with
-    | None -> k acc
-    | Some m ->
-        let bindings = StepMap.to_seq m in
-        (steps [@tailcall]) ~path acc d bindings k
+  and map : type r. (t, acc, r) folder =
+   fun ~path acc d t k ->
+    let (Map m) = t in
+    let bindings = StepMap.to_seq m in
+    (steps [@tailcall]) ~path acc d bindings k
   in
-  aux ~path acc 0 t Lwt.return
+  map ~path acc 0 t Lwt.return
 
 let test () =
   let size = 830829 in
