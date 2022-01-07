@@ -44,8 +44,7 @@ let fold : type acc. path:string list -> t -> acc -> acc Lwt.t =
     in
     next acc
   and step : type r. (string * string, acc, r) folder =
-   fun ~path acc _d (s, _v) k ->
-    let _path = rcons path s in
+   fun ~path:_ acc _d (_s, _v) k ->
     let apply () =
       incr counter;
       if !counter mod 20_000 = 0 then stack_size !counter;
@@ -65,9 +64,7 @@ let fold : type acc. path:string list -> t -> acc -> acc Lwt.t =
     | None -> k acc
     | Some m ->
         let bindings = StepMap.to_seq m in
-        seq ~path acc d bindings k
-  and seq : type r. ((string * string) Seq.t, acc, r) folder =
-   fun ~path acc d bindings k -> (steps [@tailcall]) ~path acc d bindings k
+        (steps [@tailcall]) ~path acc d bindings k
   in
   aux ~path acc 0 t Lwt.return
 
