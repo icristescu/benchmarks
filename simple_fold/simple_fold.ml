@@ -26,21 +26,14 @@ type ('v, 'acc, 'r) folder =
 let fold : type acc. path:string list -> t -> acc -> acc =
  fun ~path t acc ->
   let counter = ref 0 in
-  let rec step : type r. (string * string, acc, r) folder =
-   fun ~path:_ acc _d (_s, _v) k ->
-    let apply () =
-      incr counter;
-      if !counter mod 20_000 = 0 then stack_size !counter;
-      k acc
-    in
-    apply ()
-  and steps : type r. ((string * string) Seq.t, acc, r) folder =
+  let rec steps : type r. ((string * string) Seq.t, acc, r) folder =
    fun ~path acc d s k ->
     match s () with
     | Seq.Nil -> (k [@tailcall]) acc
-    | Seq.Cons (h, t) ->
-        (step [@tailcall]) ~path acc d h (fun acc ->
-            (steps [@tailcall]) ~path acc d t k)
+    | Seq.Cons (_h, t) ->
+        incr counter;
+        if !counter mod 20_000 = 0 then stack_size !counter;
+        (steps [@tailcall]) ~path acc d t k
   and map : type r. (t, acc, r) folder =
    fun ~path acc d t k ->
     let bindings = StepMap.to_seq t in
