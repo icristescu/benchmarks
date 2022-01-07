@@ -40,8 +40,26 @@ type ('a, 'r) cont_lwt = ('a, 'r Lwt.t) cont
 
 type ('v, 'acc, 'r) folder = path:step list -> 'acc -> 'v -> ('acc, 'r) cont_lwt
 
-let fold : type acc. path:step list -> t -> acc -> acc Lwt.t =
- fun ~path t acc ->
+type 'a node_fn = step list -> step list -> 'a -> 'a Lwt.t
+
+let fold :
+    type acc.
+    order:[ `Sorted | `Undefined | `Random ] ->
+    force:bool ->
+    cache:bool ->
+    uniq:bool ->
+    pre:acc node_fn option ->
+    post:acc node_fn option ->
+    path:step list ->
+    ?depth:int ->
+    node:(step list -> _ -> acc -> acc Lwt.t) ->
+    contents:(step list -> string -> acc -> acc Lwt.t) ->
+    tree:(step list -> _ -> acc -> acc Lwt.t) ->
+    t ->
+    acc ->
+    acc Lwt.t =
+ fun ~order:_ ~force:_ ~cache:_ ~uniq:_ ~pre:_ ~post:_ ~path ?depth:_ ~node:_
+     ~contents:_ ~tree:_ t acc ->
   let counter = ref 0 in
   let rec aux : type r. (t, acc, r) folder =
    fun ~path acc t k ->
@@ -80,12 +98,19 @@ let fold : type acc. path:step list -> t -> acc -> acc Lwt.t =
   in
   aux_uniq ~path acc t Lwt.return
 
+let id _ _ acc = Lwt.return acc
+
+let fold ?(order = `Sorted) ?(force = true) ?(cache = false) ?(uniq = false)
+    ?pre ?post ?depth ?(contents = id) ?(node = id) ?(tree = id) t acc =
+  fold ~order ~force ~cache ~uniq ~pre ~post ~path:[] ?depth ~contents ~node
+    ~tree t acc
+
 let test () =
   let size = 830829 in
   let t =
     List.init size string_of_int
     |> List.fold_left (fun acc i -> add acc i i) empty
   in
-  fold ~path:[] t [] >|= ignore
+  fold t [] >|= ignore
 
 let () = Lwt_main.run (test ())
