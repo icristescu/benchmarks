@@ -29,20 +29,23 @@ let stack_size p =
   Fmt.epr "stack_size at position %d is %d \n%!" p stats.Gc.stack_size
 
 type ('a, 'r) cont = ('a -> 'r Lwt.t) -> 'r Lwt.t
-type ('v, 'acc, 'r) folder = 'acc -> int -> 'v -> ('acc, 'r) cont
 
-let fold : type acc. t -> acc -> acc Lwt.t =
- fun t acc ->
+type ('v, 'acc, 'r) folder =
+  path:string list -> 'acc -> int -> 'v -> ('acc, 'r) cont
+
+(* If we remove the path or the depth argument the test passes. *)
+let fold : type acc. path:string list -> t -> acc -> acc Lwt.t =
+ fun ~path t acc ->
   let counter = ref 0 in
   let rec aux : type r. (t, acc, r) folder =
-   fun acc d t k ->
+   fun ~path acc d t k ->
     let next acc =
       let (Map m) = t in
-      (map [@tailcall]) acc d (Some m) k
+      (map [@tailcall]) ~path acc d (Some m) k
     in
     next acc
   and step : type r. (string * string, acc, r) folder =
-   fun acc _d (_s, _v) k ->
+   fun ~path:_ acc _d (_s, _v) k ->
     let apply () =
       incr counter;
       if !counter mod 20_000 = 0 then stack_size !counter;
@@ -50,20 +53,21 @@ let fold : type acc. t -> acc -> acc Lwt.t =
     in
     apply ()
   and steps : type r. ((string * string) Seq.t, acc, r) folder =
-   fun acc d s k ->
+   fun ~path acc d s k ->
     match s () with
     | Seq.Nil -> (k [@tailcall]) acc
     | Seq.Cons (h, t) ->
-        (step [@tailcall]) acc d h (fun acc -> (steps [@tailcall]) acc d t k)
+        (step [@tailcall]) ~path acc d h (fun acc ->
+            (steps [@tailcall]) ~path acc d t k)
   and map : type r. (map option, acc, r) folder =
-   fun acc d m k ->
+   fun ~path acc d m k ->
     match m with
     | None -> k acc
     | Some m ->
         let bindings = StepMap.to_seq m in
-        (steps [@tailcall]) acc d bindings k
+        (steps [@tailcall]) ~path acc d bindings k
   in
-  aux acc 0 t Lwt.return
+  aux ~path acc 0 t Lwt.return
 
 let test () =
   let size = 830829 in
@@ -71,6 +75,6 @@ let test () =
     List.init size string_of_int
     |> List.fold_left (fun acc i -> add acc i i) empty
   in
-  fold t [] >|= ignore
+  fold ~path:[] t [] >|= ignore
 
 let () = Lwt_main.run (test ())
