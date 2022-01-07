@@ -37,6 +37,7 @@ let fold : type acc. path:string list -> t -> acc -> acc =
     | Seq.Nil -> (k [@tailcall]) acc
     | Seq.Cons (h, t) ->
         let steps' acc = (steps [@tailcall]) ~path acc d t k in
+        (* If we replace the call of step with its code, the test passes.*)
         (step [@tailcall]) ~path acc d h steps'
   and map : type r. (t, acc, r) folder =
    fun ~path acc d t k ->
