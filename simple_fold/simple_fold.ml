@@ -50,53 +50,49 @@ let stack_size p =
 
 type ('a, 'r) cont = ('a -> 'r) -> 'r
 type ('a, 'r) cont_lwt = ('a, 'r Lwt.t) cont
-
-type ('v, 'acc, 'r) folder =
-  path:step list -> 'acc -> int -> 'v -> ('acc, 'r) cont_lwt
-
+type ('v, 'acc, 'r) folder = path:step list -> 'acc -> 'v -> ('acc, 'r) cont_lwt
 type 'a node_fn = step list -> step list -> 'a -> 'a Lwt.t
 
 let fold : type acc. path:step list -> t -> acc -> acc Lwt.t =
  fun ~path t acc ->
   let counter = ref 0 in
   let rec aux : type r. (t, acc, r) folder =
-   fun ~path acc d t k ->
+   fun ~path acc t k ->
     let next acc =
       match cached_map t with
-      | Some n -> (map [@tailcall]) ~path acc d (Some n) k
+      | Some n -> (map [@tailcall]) ~path acc (Some n) k
       | None -> k acc
     in
     next acc
   and aux_uniq : type r. (t, acc, r) folder =
-   fun ~path acc d t k -> (aux [@tailcall]) ~path acc d t k
+   fun ~path acc t k -> (aux [@tailcall]) ~path acc t k
   and step : type r. (step * elt, acc, r) folder =
-   fun ~path acc _d (s, _v) k ->
+   fun ~path acc (s, _v) k ->
     let _path = rcons path s in
     let apply () =
       incr counter;
       if !counter mod 20_000 = 0 then stack_size !counter;
-      (* checkpoint "checkpoint after 50_000 contents"; *)
       k acc
     in
     apply ()
   and steps : type r. ((step * elt) Seq.t, acc, r) folder =
-   fun ~path acc d s k ->
+   fun ~path acc s k ->
     match s () with
     | Seq.Nil -> (k [@tailcall]) acc
     | Seq.Cons (h, t) ->
-        (step [@tailcall]) ~path acc d h (fun acc ->
-            (steps [@tailcall]) ~path acc d t k)
+        (step [@tailcall]) ~path acc h (fun acc ->
+            (steps [@tailcall]) ~path acc t k)
   and map : type r. (map option, acc, r) folder =
-   fun ~path acc d m k ->
+   fun ~path acc m k ->
     match m with
     | None -> k acc
     | Some m ->
         let bindings = StepMap.to_seq m in
-        seq ~path acc d bindings k
+        seq ~path acc bindings k
   and seq : type r. ((step * elt) Seq.t, acc, r) folder =
-   fun ~path acc d bindings k -> (steps [@tailcall]) ~path acc d bindings k
+   fun ~path acc bindings k -> (steps [@tailcall]) ~path acc bindings k
   in
-  aux_uniq ~path acc 0 t Lwt.return
+  aux_uniq ~path acc t Lwt.return
 
 let id _ _ acc = Lwt.return acc
 
